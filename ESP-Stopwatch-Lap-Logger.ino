@@ -10,6 +10,7 @@
 #include <BlynkSimpleEsp8266.h>
 #endif
 
+#include <wifi_credentials.h>
 #include <SimpleTimer.h>
 
 char auth[] = "4c34e9c7f73d4fd684dbef6e57af127c";
@@ -34,7 +35,7 @@ void setup() {
 #endif
   StopwatchTimerMS = timer.setInterval(1, StopwatchTimerMSFunction);
   StopwatchTimerLapMS = timer.setInterval(1, StopwatchTimerLapMSFunction);
-  StopwatchTimer = timer.setInterval(223, StopwatchTimerFunction);
+  StopwatchTimer = timer.setInterval(123, StopwatchTimerFunction);
   timer.disable(StopwatchTimerMS);
   timer.disable(StopwatchTimerLapMS);
   Blynk.virtualWrite(6, "clr");
