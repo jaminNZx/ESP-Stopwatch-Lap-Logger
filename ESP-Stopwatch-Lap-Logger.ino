@@ -12,13 +12,10 @@
 #include <SimpleTimer.h>
 #include "settings.h"
 
-
 SimpleTimer timer;
 
-long StopwatchTimeMasterMilliSec;
-long StopwatchTimeLapMilliSec, StopwatchTimeLapBest;
-int StopwatchTimer, StopwatchTimerMS, StopwatchTimerLapMS;
-int rowIndex = 0, shortFormat = 1;
+long StopwatchTimeMasterMilliSec, StopwatchTimeLapMilliSec, StopwatchTimeLapBest;
+int StopwatchTimer, StopwatchTimerMS, StopwatchTimerLapMS, rowIndex = 0;
 
 void setup() {
   Serial.begin(115200);
