@@ -1,5 +1,3 @@
-#define ESP32 
-
 #ifdef ESP32
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -12,10 +10,8 @@
 
 #include <wifi_credentials.h>
 #include <SimpleTimer.h>
+#include "settings.h"
 
-char auth[] = "4c34e9c7f73d4fd684dbef6e57af127c";
-char ssid[] = "PrettyFlyForAWiFi";
-char pass[] = "custom2015";
 
 SimpleTimer timer;
 
@@ -27,32 +23,32 @@ int rowIndex = 0, shortFormat = 1;
 void setup() {
   Serial.begin(115200);
   WiFi.mode(WIFI_STA);
-  Blynk.begin(auth, ssid, pass, IPAddress(192, 168, 1, 2));
+#ifdef USE_LOCAL_SERVER
+  Blynk.begin(AUTH, WIFI_SSID, WIFI_PASS, SERVER);
+#else
+  Blynk.begin(AUTH, WIFI_SSID, WIFI_PASS);
+#endif
   while (Blynk.connect() == false) {}
+#ifdef OTA_UPDATES
 #ifndef ESP32
-  ArduinoOTA.setHostname("Stopwatcher"); // OPTIONAL
+  ArduinoOTA.setHostname(OTA_HOSTNAME); // OPTIONAL
   ArduinoOTA.begin();
 #endif
-  StopwatchTimerMS = timer.setInterval(1, StopwatchTimerMSFunction);
-  StopwatchTimerLapMS = timer.setInterval(1, StopwatchTimerLapMSFunction);
-  StopwatchTimer = timer.setInterval(123, StopwatchTimerFunction);
+#endif
+  StopwatchTimerMS = timer.setInterval(1, []() {
+    StopwatchTimeMasterMilliSec++;
+  });
+  StopwatchTimerLapMS = timer.setInterval(1, []() {
+    StopwatchTimeLapMilliSec++;
+  });
+  StopwatchTimer = timer.setInterval(123, []() {
+    Blynk.virtualWrite(1, StopwatchGetFormatted(StopwatchTimeMasterMilliSec, 0));
+    Blynk.virtualWrite(2, StopwatchGetFormatted(StopwatchTimeLapMilliSec, 1));
+  });
   timer.disable(StopwatchTimerMS);
   timer.disable(StopwatchTimerLapMS);
   Blynk.virtualWrite(6, "clr");
   Blynk.virtualWrite(4, 0);
-}
-
-void StopwatchTimerMSFunction() {
-  StopwatchTimeMasterMilliSec++;
-}
-
-void StopwatchTimerLapMSFunction() {
-  StopwatchTimeLapMilliSec++;
-}
-
-void StopwatchTimerFunction() {
-  Blynk.virtualWrite(1, StopwatchGetFormatted(StopwatchTimeMasterMilliSec));
-  Blynk.virtualWrite(2, StopwatchGetFormattedShort(StopwatchTimeLapMilliSec));
 }
 
 // Button Widget (Switch Type): Start/Pause Timer
@@ -63,27 +59,24 @@ BLYNK_WRITE(4) {
   } else {
     timer.disable(StopwatchTimerMS);
     timer.disable(StopwatchTimerLapMS);
-    Blynk.virtualWrite(1, StopwatchGetFormatted(StopwatchTimeMasterMilliSec));
-    Blynk.virtualWrite(2, StopwatchGetFormattedShort(StopwatchTimeLapMilliSec));
+    Blynk.virtualWrite(1, StopwatchGetFormatted(StopwatchTimeMasterMilliSec, 0));
+    Blynk.virtualWrite(2, StopwatchGetFormatted(StopwatchTimeLapMilliSec, 1));
   }
 }
 
 // Button Widget (Momentary): Lap
 BLYNK_WRITE(3) {
-  if (param.asInt()) {
-    StopwatchNewLap();
-  }
+  if (param.asInt()) StopwatchNewLap();
 }
 
 void StopwatchNewLap() {
   if (timer.isEnabled(StopwatchTimerMS)) {
-    if (!StopwatchTimeLapBest || StopwatchTimeLapMilliSec < StopwatchTimeLapBest) {
+    if (!StopwatchTimeLapBest || StopwatchTimeLapMilliSec < StopwatchTimeLapBest, 0) {
       StopwatchTimeLapBest = StopwatchTimeLapMilliSec;
-      Blynk.virtualWrite(7, StopwatchGetFormattedShort(StopwatchTimeLapMilliSec));
+      Blynk.virtualWrite(7, StopwatchGetFormatted(StopwatchTimeLapMilliSec, 1));
     }
-
     rowIndex++;
-    Blynk.virtualWrite(6, "add", rowIndex, String("Lap ") + rowIndex, StopwatchGetFormattedShort(StopwatchTimeLapMilliSec));
+    Blynk.virtualWrite(6, "add", rowIndex, String("Lap ") + rowIndex, StopwatchGetFormatted(StopwatchTimeLapMilliSec, 1));
     Blynk.virtualWrite(6, "pick", rowIndex);
     StopwatchTimeLapMilliSec = 0;
   }
@@ -98,114 +91,51 @@ BLYNK_WRITE(5) {
     StopwatchTimeLapMilliSec = 0;
     StopwatchTimeLapBest = 0;
     rowIndex = 0;
-    Blynk.virtualWrite(1, StopwatchGetFormatted(StopwatchTimeMasterMilliSec));
-    Blynk.virtualWrite(1, StopwatchGetFormattedShort(StopwatchTimeLapMilliSec));
+    Blynk.virtualWrite(1, StopwatchGetFormatted(StopwatchTimeMasterMilliSec, 0));
+    Blynk.virtualWrite(1, StopwatchGetFormatted(StopwatchTimeLapMilliSec, 1));
     Blynk.virtualWrite(6, "clr");
     Blynk.virtualWrite(4, 0);
-    Blynk.virtualWrite(7, StopwatchGetFormattedShort(StopwatchTimeLapBest));
+    Blynk.virtualWrite(7, StopwatchGetFormatted(StopwatchTimeLapBest, 1));
   }
 }
 
-String StopwatchGetFormattedShort(long milliSeconds) {
-  long days = 0;
-  long hours = 0;
-  long mins = 0;
-  long secs = 0;
-  long ms = 0;
-
-  String returned;
-
-  String ms_o;
-  String secs_o;
-  String mins_o;
-  String hours_o;
-
+String StopwatchGetFormatted(long milliSeconds, int Short) {
+  long days, hours, mins, secs, ms;
+  String returned, ms_o, secs_o, mins_o, hours_o;
   ms = milliSeconds;
-  secs = milliSeconds / 1000; //convert milliseconds to secs
-  mins = secs / 60; //convert seconds to minutes
-  hours = mins / 60; //convert minutes to hours
-  days = hours / 24; //convert hours to days
-
-  ms = milliSeconds - (secs * 1000); //subtract the coverted seconds to minutes in order to display 999 ms max
-  secs = secs - (mins * 60); //subtract the coverted seconds to minutes in order to display 59 secs max
-  mins = mins - (hours * 60); //subtract the coverted minutes to hours in order to display 59 minutes max
-  hours = hours - (days * 24); //subtract the coverted hours to days in order to display 23 hours max
-
-  returned = "";
-  if (ms == 0) {
-    ms_o = "00";
-  } else if (ms < 100) {
-    ms_o = "0";
-  } else if (ms < 10) {
-    ms_o = "00";
+  secs = milliSeconds / 1000;
+  mins = secs / 60;
+  hours = mins / 60;
+  days = hours / 24;
+  ms = milliSeconds - (secs * 1000);
+  secs = secs - (mins * 60);
+  mins = mins - (hours * 60);
+  hours = hours - (days * 24);
+  if (Short) {
+    returned = "";
+    if (ms == 0) ms_o = "00";
+    if (ms < 100) ms_o = "0";
+    if (ms < 10) ms_o = "00";
+    if (secs < 10) secs_o = "0";
+    if (mins < 10) mins_o = "0";
+    if (hours < 10) hours_o = "0";
+    if (days) returned += days + String(":");
+    if (hours) returned += hours_o + hours + String(":");
+    if (mins) returned += mins_o + mins + String(":");
+    returned += secs_o + secs + String(".");
+    returned += ms_o + ms;
+    return returned;
+  } else {
+    if (ms == 0)  ms_o = ".00";
+    if (ms < 100) ms_o = ".0";
+    if (ms < 10)  ms_o = ".00";
+    if (secs < 10) secs_o = ":0";
+    if (mins < 10) mins_o = ":0";
+    if (hours < 10) hours_o = ":0";
+    return days + hours_o + hours + mins_o + mins + secs_o + secs + ms_o + ms;
   }
-  if (secs < 10) {
-    secs_o = "0";
-  }
-  if (mins < 10) {
-    mins_o = "0";
-  }
-  if (hours < 10) {
-    hours_o = "0";
-  }
-  if (days) {
-    returned += days + String(":");
-  }
-  if (hours) {
-    returned += hours_o + hours + String(":");
-  }
-  if (mins) {
-    returned += mins_o + mins + String(":");
-  }
-  returned += secs_o + secs + String(".");
-  returned += ms_o + ms;
-  return returned;
 }
 
-String StopwatchGetFormatted(long milliSeconds) {
-  long days = 0;
-  long hours = 0;
-  long mins = 0;
-  long secs = 0;
-  long ms = 0;
-
-  String returned;
-
-  String ms_o = ".";
-  String secs_o = ":";
-  String mins_o = ":";
-  String hours_o = ":";
-
-  ms = milliSeconds;
-  secs = milliSeconds / 1000; //convert milliseconds to secs
-  mins = secs / 60; //convert seconds to minutes
-  hours = mins / 60; //convert minutes to hours
-  days = hours / 24; //convert hours to days
-
-  ms = milliSeconds - (secs * 1000); //subtract the coverted seconds to minutes in order to display 999 ms max
-  secs = secs - (mins * 60); //subtract the coverted seconds to minutes in order to display 59 secs max
-  mins = mins - (hours * 60); //subtract the coverted minutes to hours in order to display 59 minutes max
-  hours = hours - (days * 24); //subtract the coverted hours to days in order to display 23 hours max
-
-  if (ms == 0) {
-    ms_o = ".00";
-  } else if (ms < 100) {
-    ms_o = ".0";
-  } else if (ms < 10) {
-    ms_o = ".00";
-  }
-  if (secs < 10) {
-    secs_o = ":0";
-  }
-  if (mins < 10) {
-    mins_o = ":0";
-  }
-  if (hours < 10) {
-    hours_o = ":0";
-  }
-  return days + hours_o + hours + mins_o + mins + secs_o + secs + ms_o + ms;
-
-}
 
 void loop() {
   Blynk.run();
